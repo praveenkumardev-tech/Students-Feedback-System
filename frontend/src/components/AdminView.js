@@ -1,31 +1,53 @@
 import React, { useState, useEffect } from 'react';
+import axios from 'axios';
 import * as XLSX from 'xlsx';
+import { useAuth } from '../contexts/AuthContext';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
-import { Textarea } from './ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Badge } from './ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
-import { Plus, Trash2, Download, Upload, Link } from 'lucide-react';
+import { Alert, AlertDescription } from './ui/alert';
+import { Plus, Trash2, Download, Upload, Link, Copy, Loader2, LogOut } from 'lucide-react';
+
+const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
+const API = `${BACKEND_URL}/api`;
 
 const AdminView = () => {
+  const { user, logout } = useAuth();
   const [forms, setForms] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+  
   const [newForm, setNewForm] = useState({
+    title: '',
     year: '',
     section: '',
+    department: '',
     subjects: [''],
-    evaluationCriteria: ['']
+    evaluation_criteria: ['']
   });
-  const [feedbacks, setFeedbacks] = useState([]);
 
   useEffect(() => {
-    // Load saved forms and feedbacks from localStorage
-    const savedForms = JSON.parse(localStorage.getItem('forms') || '[]');
-    const savedFeedbacks = JSON.parse(localStorage.getItem('feedbacks') || '[]');
-    setForms(savedForms);
-    setFeedbacks(savedFeedbacks);
+    fetchForms();
   }, []);
+
+  const fetchForms = async () => {
+    try {
+      setLoading(true);
+      const response = await axios.get(`${API}/forms`);
+      setForms(response.data);
+      setError('');
+    } catch (error) {
+      console.error('Failed to fetch forms:', error);
+      setError('Failed to load forms. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const addSubject = () => {
     setNewForm({
@@ -56,65 +78,183 @@ const AdminView = () => {
   const addCriteria = () => {
     setNewForm({
       ...newForm,
-      evaluationCriteria: [...newForm.evaluationCriteria, '']
+      evaluation_criteria: [...newForm.evaluation_criteria, '']
     });
   };
 
   const removeCriteria = (index) => {
-    if (newForm.evaluationCriteria.length > 1) {
-      const updatedCriteria = newForm.evaluationCriteria.filter((_, i) => i !== index);
+    if (newForm.evaluation_criteria.length > 1) {
+      const updatedCriteria = newForm.evaluation_criteria.filter((_, i) => i !== index);
       setNewForm({
         ...newForm,
-        evaluationCriteria: updatedCriteria
+        evaluation_criteria: updatedCriteria
       });
     }
   };
 
   const updateCriteria = (index, value) => {
-    const updatedCriteria = [...newForm.evaluationCriteria];
+    const updatedCriteria = [...newForm.evaluation_criteria];
     updatedCriteria[index] = value;
     setNewForm({
       ...newForm,
-      evaluationCriteria: updatedCriteria
+      evaluation_criteria: updatedCriteria
     });
   };
 
-  const createForm = () => {
-    if (!newForm.year.trim() || !newForm.section.trim()) {
-      alert('Please enter both year and section');
+  const createForm = async () => {
+    const { title, year, section, department, subjects, evaluation_criteria } = newForm;
+    
+    if (!title.trim() || !year.trim() || !section.trim() || !department.trim()) {
+      setError('Please fill in all required fields (Title, Year, Section, Department)');
       return;
     }
 
-    const validSubjects = newForm.subjects.filter(s => s.trim() !== '');
-    const validCriteria = newForm.evaluationCriteria.filter(c => c.trim() !== '');
+    const validSubjects = subjects.filter(s => s.trim() !== '');
+    const validCriteria = evaluation_criteria.filter(c => c.trim() !== '');
 
     if (validSubjects.length === 0 || validCriteria.length === 0) {
-      alert('Please add at least one subject and one evaluation criteria');
+      setError('Please add at least one subject and one evaluation criteria');
       return;
     }
 
-    const formData = {
-      id: `form_${Date.now()}`,
-      year: newForm.year.trim(),
-      section: newForm.section.trim(),
-      subjects: validSubjects,
-      evaluationCriteria: validCriteria,
-      createdAt: new Date().toISOString()
-    };
+    try {
+      setSubmitting(true);
+      setError('');
+      
+      const formData = {
+        title: title.trim(),
+        year: year.trim(),
+        section: section.trim(),
+        department: department.trim(),
+        subjects: validSubjects,
+        evaluation_criteria: validCriteria
+      };
 
-    const updatedForms = [...forms, formData];
-    setForms(updatedForms);
-    localStorage.setItem('forms', JSON.stringify(updatedForms));
+      const response = await axios.post(`${API}/forms`, formData);
+      
+      // Reset form
+      setNewForm({
+        title: '',
+        year: '',
+        section: '',
+        department: '',
+        subjects: [''],
+        evaluation_criteria: ['']
+      });
 
-    // Reset form
-    setNewForm({
-      year: '',
-      section: '',
-      subjects: [''],
-      evaluationCriteria: ['']
+      setSuccess(`Form created successfully! Share this link: ${response.data.shareable_link}`);
+      
+      // Refresh forms list
+      await fetchForms();
+      
+    } catch (error) {
+      console.error('Failed to create form:', error);
+      setError(error.response?.data?.detail || 'Failed to create form. Please try again.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const copyToClipboard = (text) => {
+    navigator.clipboard.writeText(text).then(() => {
+      setSuccess('Link copied to clipboard!');
+      setTimeout(() => setSuccess(''), 3000);
     });
+  };
 
-    alert(`Form created successfully! Share this link with students:\n${window.location.origin}/#/student/${formData.id}`);
+  const exportFormData = async (formId) => {
+    try {
+      const response = await axios.get(`${API}/forms/${formId}/feedback`);
+      const data = response.data;
+
+      if (data.feedbacks.length === 0) {
+        setError('No feedback data to export for this form.');
+        return;
+      }
+
+      const workbook = XLSX.utils.book_new();
+
+      // Create summary sheet
+      const summaryData = [
+        [`Feedback Summary - ${data.form_title}`],
+        [`${data.year} ${data.department} - Section ${data.section}`],
+        [`Total Responses: ${data.total_responses}`],
+        [''],
+        ['Subject-wise Average Ratings:'],
+        ...Object.entries(data.average_ratings_per_subject).map(([subject, rating]) => [
+          subject, rating.toFixed(2)
+        ]),
+        [''],
+        ['Individual Student Responses:'],
+        ['Student ID', 'Student Name', 'Submitted On', 'Comments', ...Object.keys(data.average_ratings_per_subject)]
+      ];
+
+      // Add individual responses
+      data.feedbacks.forEach(feedback => {
+        const row = [
+          feedback.student_id,
+          feedback.student_name || 'Not provided',
+          new Date(feedback.submitted_at).toLocaleString(),
+          feedback.comments || 'No comments'
+        ];
+        
+        // Add average ratings for each subject
+        Object.keys(data.average_ratings_per_subject).forEach(subject => {
+          row.push(feedback.averages[subject] ? feedback.averages[subject].toFixed(2) : 'N/A');
+        });
+        
+        summaryData.push(row);
+      });
+
+      const summarySheet = XLSX.utils.aoa_to_sheet(summaryData);
+      XLSX.utils.book_append_sheet(workbook, summarySheet, 'Summary');
+
+      // Create detailed sheet with all ratings
+      if (data.feedbacks.length > 0) {
+        const firstFeedback = data.feedbacks[0];
+        const subjects = Object.keys(firstFeedback.ratings);
+        const criteria = Object.keys(firstFeedback.ratings[subjects[0]] || {});
+
+        const detailedData = [
+          [`Detailed Feedback - ${data.form_title}`],
+          [`${data.year} ${data.department} - Section ${data.section}`],
+          [''],
+          ['Student ID', 'Student Name', 'Submitted On', ...subjects.flatMap(subject => 
+            criteria.map(criterion => `${subject} - ${criterion}`)
+          ), 'Comments']
+        ];
+
+        data.feedbacks.forEach(feedback => {
+          const row = [
+            feedback.student_id,
+            feedback.student_name || 'Not provided',
+            new Date(feedback.submitted_at).toLocaleString()
+          ];
+          
+          subjects.forEach(subject => {
+            criteria.forEach(criterion => {
+              row.push(feedback.ratings[subject]?.[criterion] || 'N/A');
+            });
+          });
+          
+          row.push(feedback.comments || 'No comments');
+          detailedData.push(row);
+        });
+
+        const detailedSheet = XLSX.utils.aoa_to_sheet(detailedData);
+        XLSX.utils.book_append_sheet(workbook, detailedSheet, 'Detailed');
+      }
+
+      const fileName = `Feedback_${data.year}_${data.department}_${data.section}_${new Date().toISOString().split('T')[0]}.xlsx`;
+      XLSX.writeFile(workbook, fileName);
+      
+      setSuccess('Feedback data exported successfully!');
+      setTimeout(() => setSuccess(''), 3000);
+      
+    } catch (error) {
+      console.error('Failed to export data:', error);
+      setError('Failed to export data. Please try again.');
+    }
   };
 
   const handleFileUpload = (event) => {
@@ -129,79 +269,63 @@ const AdminView = () => {
         const sheet = workbook.Sheets[sheetName];
         const data = XLSX.utils.sheet_to_json(sheet);
 
-        // Process the uploaded feedback data
         console.log('Uploaded feedback data:', data);
-        alert('Feedback file uploaded successfully!');
+        setSuccess('Feedback file uploaded successfully!');
+        setTimeout(() => setSuccess(''), 3000);
       } catch (error) {
         console.error('Error reading file:', error);
-        alert('Error reading file. Please ensure it\'s a valid Excel file.');
+        setError('Error reading file. Please ensure it\'s a valid Excel file.');
       }
     };
     reader.readAsBinaryString(file);
   };
 
-  const exportAllFeedbacks = () => {
-    if (feedbacks.length === 0) {
-      alert('No feedback data to export');
-      return;
-    }
-
-    const workbook = XLSX.utils.book_new();
-
-    // Group feedbacks by year and section
-    const groupedFeedbacks = feedbacks.reduce((acc, feedback) => {
-      const key = `${feedback.year}_${feedback.section}`;
-      if (!acc[key]) {
-        acc[key] = [];
-      }
-      acc[key].push(feedback);
-      return acc;
-    }, {});
-
-    Object.keys(groupedFeedbacks).forEach(key => {
-      const [year, section] = key.split('_');
-      const sectionFeedbacks = groupedFeedbacks[key];
-
-      const worksheetData = [
-        [`Feedback Summary - ${year} ${section}`],
-        [''],
-        ['Student ID', 'Submitted On', 'Overall Average', 'Comments']
-      ];
-
-      sectionFeedbacks.forEach(feedback => {
-        const overallAvg = Object.values(feedback.averages || {})
-          .reduce((sum, avg) => sum + parseFloat(avg), 0) / Object.keys(feedback.averages || {}).length;
-        
-        worksheetData.push([
-          feedback.studentId,
-          new Date(feedback.timestamp).toLocaleString(),
-          overallAvg.toFixed(2),
-          feedback.comments || 'No comments'
-        ]);
-      });
-
-      const worksheet = XLSX.utils.aoa_to_sheet(worksheetData);
-      XLSX.utils.book_append_sheet(workbook, worksheet, `${year}_${section}`);
-    });
-
-    XLSX.writeFile(workbook, `All_Feedbacks_${new Date().toISOString().split('T')[0]}.xlsx`);
-  };
-
-  const getFeedbackCount = (formId) => {
-    return feedbacks.filter(f => f.formId === formId).length;
-  };
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <Loader2 className="mx-auto h-8 w-8 animate-spin text-blue-600" />
+          <p className="mt-2 text-gray-600">Loading admin dashboard...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-50 py-8">
       <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
+        {/* Header */}
         <Card className="mb-8">
           <CardHeader>
-            <CardTitle className="text-2xl font-bold text-gray-900">
-              Admin Dashboard
-            </CardTitle>
-            <p className="text-gray-600">Manage feedback forms and view submissions</p>
+            <div className="flex justify-between items-center">
+              <div>
+                <CardTitle className="text-2xl font-bold text-gray-900">
+                  Admin Dashboard
+                </CardTitle>
+                <p className="text-gray-600">
+                  Welcome, {user?.username} - Manage feedback forms and view submissions
+                </p>
+              </div>
+              <Button variant="outline" onClick={logout} className="text-red-600 hover:text-red-700">
+                <LogOut className="h-4 w-4 mr-2" />
+                Logout
+              </Button>
+            </div>
           </CardHeader>
         </Card>
+
+        {/* Alerts */}
+        {error && (
+          <Alert variant="destructive" className="mb-4">
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
+
+        {success && (
+          <Alert className="mb-4 border-green-200 bg-green-50">
+            <AlertDescription className="text-green-800">{success}</AlertDescription>
+          </Alert>
+        )}
 
         <Tabs defaultValue="create" className="space-y-6">
           <TabsList className="grid w-full grid-cols-4">
@@ -220,21 +344,46 @@ const AdminView = () => {
               <CardContent className="space-y-6">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
-                    <Label htmlFor="year">Year</Label>
+                    <Label htmlFor="title">Form Title *</Label>
                     <Input
-                      id="year"
-                      placeholder="e.g., 3rd Year"
-                      value={newForm.year}
-                      onChange={(e) => setNewForm({...newForm, year: e.target.value})}
+                      id="title"
+                      placeholder="e.g., Mid-Semester Feedback"
+                      value={newForm.title}
+                      onChange={(e) => setNewForm({...newForm, title: e.target.value})}
+                      disabled={submitting}
                     />
                   </div>
                   <div>
-                    <Label htmlFor="section">Section</Label>
+                    <Label htmlFor="department">Department *</Label>
+                    <Input
+                      id="department"
+                      placeholder="e.g., ECE, CSE, MECH"
+                      value={newForm.department}
+                      onChange={(e) => setNewForm({...newForm, department: e.target.value})}
+                      disabled={submitting}
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <Label htmlFor="year">Year *</Label>
+                    <Input
+                      id="year"
+                      placeholder="e.g., 3rd Year, 4th Year"
+                      value={newForm.year}
+                      onChange={(e) => setNewForm({...newForm, year: e.target.value})}
+                      disabled={submitting}
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="section">Section *</Label>
                     <Input
                       id="section"
-                      placeholder="e.g., A"
+                      placeholder="e.g., A, B, C"
                       value={newForm.section}
                       onChange={(e) => setNewForm({...newForm, section: e.target.value})}
+                      disabled={submitting}
                     />
                   </div>
                 </div>
@@ -250,19 +399,26 @@ const AdminView = () => {
                           value={subject}
                           onChange={(e) => updateSubject(index, e.target.value)}
                           className="flex-1"
+                          disabled={submitting}
                         />
                         <Button
                           type="button"
                           variant="outline"
                           size="icon"
                           onClick={() => removeSubject(index)}
-                          disabled={newForm.subjects.length === 1}
+                          disabled={newForm.subjects.length === 1 || submitting}
                         >
                           <Trash2 className="h-4 w-4" />
                         </Button>
                       </div>
                     ))}
-                    <Button type="button" variant="outline" onClick={addSubject} className="w-full">
+                    <Button 
+                      type="button" 
+                      variant="outline" 
+                      onClick={addSubject} 
+                      className="w-full"
+                      disabled={submitting}
+                    >
                       <Plus className="h-4 w-4 mr-2" />
                       Add Subject
                     </Button>
@@ -273,34 +429,48 @@ const AdminView = () => {
                 <div>
                   <Label className="text-lg font-medium">Evaluation Criteria</Label>
                   <div className="space-y-2 mt-2">
-                    {newForm.evaluationCriteria.map((criteria, index) => (
+                    {newForm.evaluation_criteria.map((criteria, index) => (
                       <div key={index} className="flex gap-2">
                         <Input
                           placeholder={`Evaluation criteria ${index + 1}`}
                           value={criteria}
                           onChange={(e) => updateCriteria(index, e.target.value)}
                           className="flex-1"
+                          disabled={submitting}
                         />
                         <Button
                           type="button"
                           variant="outline"
                           size="icon"
                           onClick={() => removeCriteria(index)}
-                          disabled={newForm.evaluationCriteria.length === 1}
+                          disabled={newForm.evaluation_criteria.length === 1 || submitting}
                         >
                           <Trash2 className="h-4 w-4" />
                         </Button>
                       </div>
                     ))}
-                    <Button type="button" variant="outline" onClick={addCriteria} className="w-full">
+                    <Button 
+                      type="button" 
+                      variant="outline" 
+                      onClick={addCriteria} 
+                      className="w-full"
+                      disabled={submitting}
+                    >
                       <Plus className="h-4 w-4 mr-2" />
                       Add Criteria
                     </Button>
                   </div>
                 </div>
 
-                <Button onClick={createForm} className="w-full">
-                  Create Feedback Form
+                <Button onClick={createForm} className="w-full" disabled={submitting}>
+                  {submitting ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Creating Form...
+                    </>
+                  ) : (
+                    'Create Feedback Form'
+                  )}
                 </Button>
               </CardContent>
             </Card>
@@ -321,14 +491,17 @@ const AdminView = () => {
                       <div key={form.id} className="p-4 border rounded-lg bg-white">
                         <div className="flex justify-between items-start mb-2">
                           <div>
-                            <h3 className="font-semibold text-lg">{form.year} - Section {form.section}</h3>
+                            <h3 className="font-semibold text-lg">{form.title}</h3>
+                            <p className="text-blue-600 font-medium">
+                              {form.year} {form.department} - Section {form.section}
+                            </p>
                             <p className="text-sm text-gray-500">
-                              Created: {new Date(form.createdAt).toLocaleString()}
+                              Created: {new Date(form.created_at).toLocaleString()}
                             </p>
                           </div>
                           <div className="flex items-center gap-2">
                             <Badge variant="secondary">
-                              {getFeedbackCount(form.id)} responses
+                              {form.response_count} responses
                             </Badge>
                           </div>
                         </div>
@@ -344,22 +517,27 @@ const AdminView = () => {
 
                         <div className="mb-3">
                           <p className="text-sm font-medium text-gray-700 mb-1">
-                            Evaluation Criteria: {form.evaluationCriteria.length} items
+                            Evaluation Criteria: {form.evaluation_criteria.length} items
                           </p>
                         </div>
 
-                        <div className="flex gap-2">
+                        <div className="flex gap-2 flex-wrap">
                           <Button 
                             variant="outline" 
                             size="sm"
-                            onClick={() => {
-                              const link = `${window.location.origin}/#/student/${form.id}`;
-                              navigator.clipboard.writeText(link);
-                              alert('Link copied to clipboard!');
-                            }}
+                            onClick={() => copyToClipboard(form.shareable_link)}
                           >
-                            <Link className="h-4 w-4 mr-1" />
+                            <Copy className="h-4 w-4 mr-1" />
                             Copy Link
+                          </Button>
+                          <Button 
+                            variant="outline" 
+                            size="sm"
+                            onClick={() => exportFormData(form.id)}
+                            disabled={form.response_count === 0}
+                          >
+                            <Download className="h-4 w-4 mr-1" />
+                            Export Data ({form.response_count})
                           </Button>
                         </div>
                       </div>
@@ -409,19 +587,19 @@ const AdminView = () => {
               <CardContent>
                 <div className="space-y-4">
                   <p className="text-gray-600">
-                    Export all collected feedback data grouped by year and section to Excel format.
+                    Export feedback data for individual forms using the "Export Data" button in the Manage Forms section.
                   </p>
                   
                   <div className="bg-blue-50 p-4 rounded-lg">
                     <p className="text-sm text-blue-800">
-                      <strong>Total Feedbacks:</strong> {feedbacks.length}
+                      <strong>Total Forms:</strong> {forms.length}<br />
+                      <strong>Total Responses:</strong> {forms.reduce((total, form) => total + form.response_count, 0)}
                     </p>
                   </div>
 
-                  <Button onClick={exportAllFeedbacks} className="w-full">
-                    <Download className="h-4 w-4 mr-2" />
-                    Export All Feedbacks to Excel
-                  </Button>
+                  <div className="text-center text-gray-500 py-8">
+                    Use the individual export buttons in the "Manage Forms" tab to export data per section.
+                  </div>
                 </div>
               </CardContent>
             </Card>
