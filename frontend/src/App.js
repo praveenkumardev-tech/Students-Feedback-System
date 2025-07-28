@@ -1,62 +1,68 @@
-import { useEffect } from "react";
+import React from "react";
 import "./App.css";
-import { HashRouter, Routes, Route } from "react-router-dom";
-import axios from "axios";
+import { HashRouter, Routes, Route, Navigate } from "react-router-dom";
+import { AuthProvider } from "./contexts/AuthContext";
+import ProtectedRoute from "./components/ProtectedRoute";
+import Navigation from "./components/Navigation";
+import HomePage from "./components/HomePage";
 import StudentView from "./components/StudentView";
 import AdminView from "./components/AdminView";
-import Navigation from "./components/Navigation";
-
-const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
-const API = `${BACKEND_URL}/api`;
-
-const Home = () => {
-  const helloWorldApi = async () => {
-    try {
-      const response = await axios.get(`${API}/`);
-      console.log(response.data.message);
-    } catch (e) {
-      console.error(e, `errored out requesting / api`);
-    }
-  };
-
-  useEffect(() => {
-    helloWorldApi();
-  }, []);
-
-  return (
-    <div>
-      <Navigation />
-      <StudentView />
-    </div>
-  );
-};
+import Login from "./components/Login";
+import Register from "./components/Register";
 
 function App() {
   return (
     <div className="App">
-      <HashRouter>
-        <Routes>
-          <Route path="/" element={<Home />} />
-          <Route 
-            path="/student/:formId" 
-            element={
-              <div>
-                <Navigation />
-                <StudentView />
-              </div>
-            } 
-          />
-          <Route 
-            path="/admin" 
-            element={
-              <div>
-                <Navigation />
-                <AdminView />
-              </div>
-            } 
-          />
-        </Routes>
-      </HashRouter>
+      <AuthProvider>
+        <HashRouter>
+          <Navigation />
+          <Routes>
+            {/* Public Routes */}
+            <Route path="/" element={<HomePage />} />
+            <Route path="/student-login" element={<Login role="student" />} />
+            <Route path="/admin-login" element={<Login role="admin" />} />
+            <Route path="/register" element={<Register />} />
+            
+            {/* Student Form Access (Public with form validation) */}
+            <Route 
+              path="/student/:formId" 
+              element={<StudentView />}
+            />
+            
+            {/* Protected Admin Routes */}
+            <Route 
+              path="/admin" 
+              element={
+                <ProtectedRoute adminOnly={true}>
+                  <AdminView />
+                </ProtectedRoute>
+              }
+            />
+            
+            {/* Redirect old routes */}
+            <Route path="/login" element={<Navigate to="/admin-login" replace />} />
+            
+            {/* 404 Fallback */}
+            <Route 
+              path="*" 
+              element={
+                <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+                  <div className="text-center">
+                    <h1 className="text-2xl font-bold text-gray-900 mb-2">Page Not Found</h1>
+                    <p className="text-gray-600 mb-4">The page you're looking for doesn't exist.</p>
+                    <button 
+                      onClick={() => window.location.href = '/#/'}
+                      className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
+                    >
+                      Go Home
+                    </button>
+                  </div>
+                </div>
+              }
+            />
+          </Routes>
+        </HashRouter>
+      </AuthProvider>
     </div>
   );
 }
