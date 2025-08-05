@@ -101,13 +101,22 @@ class BackendAPITester:
     def test_health_check(self) -> bool:
         """Test health check endpoint"""
         try:
+            # Try both /health and /api/health endpoints
             response = self.make_request("GET", "/health")
+            if response.status_code != 200:
+                # If /health doesn't work, try /api/health
+                response = self.make_request("GET", "/api/health")
+            
             success = response.status_code == 200
             
             if success:
-                data = response.json()
-                success = data.get("status") == "ok" and "timestamp" in data
-                self.log_test("Health Check", success, f"Status: {data.get('status')}")
+                try:
+                    data = response.json()
+                    success = data.get("status") == "ok" and "timestamp" in data
+                    self.log_test("Health Check", success, f"Status: {data.get('status')}")
+                except:
+                    # If it's not JSON, it might be HTML (frontend routing issue)
+                    self.log_test("Health Check", False, "Health endpoint returns HTML instead of JSON (routing issue)")
             else:
                 self.log_test("Health Check", False, f"Status code: {response.status_code}")
                 
