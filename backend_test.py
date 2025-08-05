@@ -18,10 +18,11 @@ class BackendAPITester:
         self.admin_user_id = None
         self.form_id = None
         
-        # Test data
+        # Test data with unique identifiers
+        unique_id = str(uuid.uuid4())[:8]
         self.admin_user_data = {
-            "username": "prof_johnson",
-            "email": "prof.johnson@university.edu",
+            "username": f"prof_johnson_{unique_id}",
+            "email": f"prof.johnson.{unique_id}@university.edu",
             "password": "SecurePassword123!",
             "role": "admin"
         }
