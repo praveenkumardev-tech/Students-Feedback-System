@@ -102,7 +102,7 @@
 # Testing Data - Main Agent and testing sub agent both should log testing data below this section
 #====================================================================================================
 
-user_problem_statement: "Test the Node.js backend API that I just migrated from Python to ensure all endpoints are working correctly. The backend should be running on http://localhost:8001"
+user_problem_statement: "Test the frontend of the Teacher Feedback Collection System with the new Node.js backend. Verify complete workflow including admin registration/login, form creation, shareable links, student form access without authentication, mobile responsiveness, and data organization."
 
 backend:
   - task: "Health Check Endpoint"
