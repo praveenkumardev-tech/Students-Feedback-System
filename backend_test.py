@@ -408,7 +408,7 @@ class BackendAPITester:
 
 def main():
     # Get backend URL from environment or use default
-    backend_url = "https://4c1df90d-fc6d-43da-afe3-063e141f2cf8.preview.emergentagent.com"
+    backend_url = "https://37229bc6-49d3-44df-9f81-66ed275eb5ea.preview.emergentagent.com"
     
     print(f"Backend API Test Suite")
     print(f"Target URL: {backend_url}")
