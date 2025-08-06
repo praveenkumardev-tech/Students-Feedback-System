@@ -113,10 +113,10 @@ const StudentView = () => {
 
       await axios.post(`${API}/feedback`, feedbackData);
 
-      // Export to Excel
-      exportToExcel(feedbackData);
+      // ❌ Export removed — students won't download Excel anymore
+      // exportToExcel(feedbackData);
 
-      setSuccess('Feedback submitted successfully! Excel file has been downloaded.');
+      setSuccess('Feedback submitted successfully!');
       
       // Reset form
       setStudentId('');
@@ -189,8 +189,8 @@ const StudentView = () => {
     XLSX.utils.book_append_sheet(workbook, worksheet, 'Feedback');
 
     // Download file
-    const fileName = `Feedback_${formData.year}_${formData.department}_${formData.section}_${feedbackData.student_id}.xlsx`;
-    XLSX.writeFile(workbook, fileName);
+    // const fileName = `Feedback_${formData.year}_${formData.department}_${formData.section}_${feedbackData.student_id}.xlsx`;
+    // XLSX.writeFile(workbook, fileName);
   };
 
   const getRatingColor = (value) => {
