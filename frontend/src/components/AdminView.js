@@ -1279,15 +1279,6 @@
 
 
 
-
-
-
-
-
-
-
-
-
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import * as XLSX from 'xlsx';
@@ -1309,7 +1300,7 @@ const AdminView = () => {
   const [forms, setForms] = useState([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
-  const [exporting, setExporting] = useState(false);
+  const [exporting, setExporting] = useState(false); // New state for 'Export All' button
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   
@@ -1453,7 +1444,7 @@ const AdminView = () => {
     });
   };
 
-  // Renamed to be more specific
+  // This function is for exporting a single form from the "Manage Forms" tab
   const exportSingleFormData = async (formId) => {
     try {
       const response = await axios.get(`${API}/forms/${formId}/feedback`);
@@ -1490,6 +1481,7 @@ const AdminView = () => {
           feedback.comments || 'No comments'
         ];
         
+        // Add average ratings for each subject
         Object.keys(data.average_ratings_per_subject).forEach(subject => {
           row.push(feedback.averages[subject] ? feedback.averages[subject].toFixed(2) : 'N/A');
         });
@@ -1548,7 +1540,7 @@ const AdminView = () => {
     }
   };
 
-  // NEW FUNCTION: Export all forms data into a single Excel workbook with multiple sheets
+  // New function to export ALL forms into a single Excel file with multiple sheets
   const exportAllFormsData = async () => {
     if (forms.length === 0) {
       setError('No forms available to export.');
@@ -1569,8 +1561,10 @@ const AdminView = () => {
         const data = response.data;
         
         // Create a worksheet for each form
+        // Sanitize sheet name to avoid illegal characters
         const sheetName = `${data.department}_${data.year}_${data.section}`.replace(/[\/\\?*\[\]:]/g, '_').substring(0, 31);
         
+        // Prepare data for a single sheet (similar to your existing logic)
         const sheetData = [
           [`Feedback Summary - ${data.form_title}`],
           [`${data.year} ${data.department} - Section ${data.section}`],
@@ -1893,7 +1887,7 @@ const AdminView = () => {
                           <Button 
                             variant="outline" 
                             size="sm"
-                            onClick={() => exportSingleFormData(form.id)} // Renamed function call
+                            onClick={() => exportSingleFormData(form.id)}
                             disabled={form.response_count === 0}
                           >
                             <Download className="h-4 w-4 mr-1" />
@@ -1908,7 +1902,7 @@ const AdminView = () => {
             </Card>
           </TabsContent>
 
-          {/* Upload Data (no changes) */}
+          {/* Upload Data */}
           <TabsContent value="upload">
             <Card>
               <CardHeader>
