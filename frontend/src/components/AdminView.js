@@ -1278,7 +1278,6 @@
 
 
 
-
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import * as XLSX from 'xlsx';
@@ -1334,7 +1333,7 @@ const AdminView = () => {
         }
     };
 
-    // --- Form Creation Helpers (Unchanged) ---
+    // Form Creation Helpers (unchanged)
     const addSubject = () => setNewForm({ ...newForm, subjects: [...newForm.subjects, ''] });
     const removeSubject = (index) => {
         if (newForm.subjects.length > 1) {
@@ -1358,9 +1357,7 @@ const AdminView = () => {
         setNewForm({ ...newForm, evaluation_criteria: updatedCriteria });
     };
 
-    // --- Core Functions ---
     const createForm = async () => {
-        // (This function's logic is sound and remains unchanged)
         const { title, year, section, department, subjects, evaluation_criteria } = newForm;
         if (!title.trim() || !year.trim() || !section.trim() || !department.trim()) {
             setError('Please fill in all required fields (Title, Year, Section, Department)');
@@ -1375,7 +1372,14 @@ const AdminView = () => {
         try {
             setSubmitting(true);
             setError('');
-            const formData = { title: title.trim(), year: year.trim(), section: section.trim(), department: department.trim(), subjects: validSubjects, evaluation_criteria: validCriteria };
+            const formData = { 
+                title: title.trim(), 
+                year: year.trim(), 
+                section: section.trim(), 
+                department: department.trim(), 
+                subjects: validSubjects, 
+                evaluation_criteria: validCriteria 
+            };
             const response = await axios.post(`${API}/forms`, formData);
             setNewForm({ title: '', year: '', section: '', department: '', subjects: [''], evaluation_criteria: [''] });
             setSuccess(`Form created successfully! Share this link: ${response.data.shareable_link}`);
@@ -1394,8 +1398,7 @@ const AdminView = () => {
             setTimeout(() => setSuccess(''), 3000);
         });
     };
-    
-    // --- NEW: Delete Form Function ---
+
     const deleteForm = async (formId) => {
         if (!window.confirm('Are you sure you want to delete this form and all its responses? This action cannot be undone.')) {
             return;
@@ -1403,7 +1406,7 @@ const AdminView = () => {
         try {
             await axios.delete(`${API}/forms/${formId}`);
             setSuccess('Form deleted successfully.');
-            await fetchForms(); // Refresh the list
+            await fetchForms();
         } catch (error) {
             console.error('Failed to delete form:', error);
             setError(error.response?.data?.detail || 'Failed to delete form.');
@@ -1415,138 +1418,321 @@ const AdminView = () => {
         }
     };
 
-    // --- FIXED: Export Logic ---
-    
-    // Helper to calculate per-student averages, making the export robust.
+    // FIXED: Helper to safely calculate student averages
     const calculateStudentAverages = (feedback, subjects, criteria) => {
         const averages = {};
+        if (!feedback || !feedback.ratings) {
+            subjects.forEach(subject => {
+                averages[subject] = 0;
+            });
+            return averages;
+        }
+
         subjects.forEach(subject => {
-            if (feedback.ratings && feedback.ratings[subject]) {
-                const subjectRatings = criteria.map(c => feedback.ratings[subject][c]).filter(v => typeof v === 'number');
-                const sum = subjectRatings.reduce((acc, val) => acc + val, 0);
-                averages[subject] = subjectRatings.length > 0 ? (sum / subjectRatings.length) : 0;
+            if (feedback.ratings[subject] && typeof feedback.ratings[subject] === 'object') {
+                const subjectRatings = criteria
+                    .map(c => feedback.ratings[subject][c])
+                    .filter(v => typeof v === 'number' && !isNaN(v));
+                
+                if (subjectRatings.length > 0) {
+                    const sum = subjectRatings.reduce((acc, val) => acc + val, 0);
+                    averages[subject] = parseFloat((sum / subjectRatings.length).toFixed(2));
+                } else {
+                    averages[subject] = 0;
+                }
             } else {
                 averages[subject] = 0;
             }
         });
         return averages;
     };
-    
-    const exportSingleFormData = async (formId) => {
-        try {
-            const { data } = await axios.get(`${API}/forms/${formId}/feedback`);
-            if (!data.feedbacks || data.feedbacks.length === 0) {
-                setError('No feedback data to export for this form.');
-                return;
-            }
-    
-            const workbook = XLSX.utils.book_new();
-            const subjects = data.subjects || [];
-            const criteria = data.evaluation_criteria || [];
 
-            // --- Summary Sheet ---
-            const summaryData = [
-                [`Feedback Summary - ${data.form_title}`],
-                [`${data.year} ${data.department} - Section ${data.section}`],
-                [`Total Responses: ${data.total_responses}`],
-                [''],
-                ['Overall Subject-wise Average Ratings:'],
-                ...Object.entries(data.average_ratings_per_subject).map(([subject, rating]) => [subject, rating.toFixed(2)]),
-                [''],
-                ['Individual Student Responses (Averages):'],
-                ['Student ID', 'Student Name', 'Submitted On', 'Comments', ...subjects]
-            ];
-            
-            data.feedbacks.forEach(feedback => {
-                const studentAverages = calculateStudentAverages(feedback, subjects, criteria);
-                const row = [feedback.student_id, feedback.student_name || 'N/A', new Date(feedback.submitted_at).toLocaleString(), feedback.comments || 'N/A'];
-                subjects.forEach(subject => row.push(studentAverages[subject] ? studentAverages[subject].toFixed(2) : 'N/A'));
-                summaryData.push(row);
-            });
-            const summarySheet = XLSX.utils.aoa_to_sheet(summaryData);
-            XLSX.utils.book_append_sheet(workbook, summarySheet, 'Summary');
-    
-            // --- Detailed Sheet ---
-            const detailedData = [
-                ['Detailed Feedback'],
-                ['Student ID', 'Student Name', 'Submitted On', ...subjects.flatMap(s => criteria.map(c => `${s} - ${c}`)), 'Comments']
-            ];
-            data.feedbacks.forEach(feedback => {
-                const row = [feedback.student_id, feedback.student_name || 'N/A', new Date(feedback.submitted_at).toLocaleString()];
-                subjects.forEach(s => criteria.forEach(c => row.push(feedback.ratings[s]?.[c] ?? 'N/A')));
-                row.push(feedback.comments || 'N/A');
-                detailedData.push(row);
-            });
-            const detailedSheet = XLSX.utils.aoa_to_sheet(detailedData);
-            XLSX.utils.book_append_sheet(workbook, detailedSheet, 'Detailed');
-    
-            XLSX.writeFile(workbook, `Feedback_${data.department}_${data.section}_${new Date().toISOString().split('T')[0]}.xlsx`);
-            setSuccess('Feedback data exported successfully!');
-        } catch (error) {
-            console.error('Failed to export data:', error);
-            setError('Failed to export data. The API might be down or the data is corrupted.');
-        } finally {
-            setTimeout(() => setSuccess(''), 3000);
-        }
-    };
-    
-    const exportAllFormsData = async () => {
-        if (forms.length === 0) {
-            setError('No forms available to export.');
+    // FIXED: Export single form data with better error handling
+    const exportSingleFormData = async (formId) => {
+        if (!formId) {
+            setError('Invalid form ID provided.');
             return;
         }
+
         setExporting(true);
         setError('');
-        const workbook = XLSX.utils.book_new();
-    
+        
         try {
-            for (const form of forms) {
-                if (form.response_count === 0) continue;
-    
-                const { data } = await axios.get(`${API}/forms/${form.id}/feedback`);
-                if (!data.feedbacks || data.feedbacks.length === 0) continue;
-    
-                const sheetName = `${data.department}_${data.year}_${data.section}`.replace(/[\/\\?*\[\]:]/g, '_').substring(0, 31);
-                const subjects = data.subjects || [];
-                const criteria = data.evaluation_criteria || [];
+            console.log(`Attempting to fetch feedback for form ${formId}`);
+            
+            // Try multiple possible API endpoints
+            let response;
+            const possibleEndpoints = [
+                `${API}/forms/${formId}/feedback`,
+                `${API}/forms/${formId}/responses`,
+                `${API}/feedback/${formId}`,
+                `${API}/forms/${formId}`
+            ];
 
-                const sheetData = [
-                    [`Feedback Summary - ${data.form_title}`],
-                    [`Total Responses: ${data.total_responses}`],
-                    [''],
-                    ['Student ID', 'Student Name', 'Submitted On', 'Comments', ...subjects]
-                ];
-    
-                data.feedbacks.forEach(feedback => {
+            for (const endpoint of possibleEndpoints) {
+                try {
+                    console.log(`Trying endpoint: ${endpoint}`);
+                    response = await axios.get(endpoint);
+                    console.log(`Success with endpoint: ${endpoint}`, response.data);
+                    break;
+                } catch (err) {
+                    console.warn(`Failed endpoint ${endpoint}:`, err.response?.status, err.message);
+                    continue;
+                }
+            }
+
+            if (!response) {
+                throw new Error('No valid API endpoint found for fetching feedback data');
+            }
+
+            const data = response.data;
+            
+            // Validate data structure
+            if (!data) {
+                throw new Error('No data received from API');
+            }
+
+            // Handle different possible data structures
+            const feedbacks = data.feedbacks || data.responses || data.data || [];
+            const subjects = data.subjects || [];
+            const criteria = data.evaluation_criteria || data.criteria || [];
+            const formTitle = data.form_title || data.title || `Form ${formId}`;
+            const totalResponses = data.total_responses || feedbacks.length || 0;
+
+            if (feedbacks.length === 0) {
+                setError('No feedback responses found for this form.');
+                return;
+            }
+
+            console.log(`Processing ${feedbacks.length} feedback entries`);
+
+            const workbook = XLSX.utils.book_new();
+
+            // Create Summary Sheet
+            const summaryData = [
+                [`Feedback Summary - ${formTitle}`],
+                [`${data.year || 'N/A'} ${data.department || 'N/A'} - Section ${data.section || 'N/A'}`],
+                [`Total Responses: ${totalResponses}`],
+                [`Export Date: ${new Date().toLocaleString()}`],
+                [''],
+                ['Student Responses Summary:'],
+                ['Student ID', 'Student Name', 'Submitted On', 'Comments', ...subjects.map(s => `${s} Avg`)]
+            ];
+
+            // Process each feedback entry
+            feedbacks.forEach((feedback, index) => {
+                try {
                     const studentAverages = calculateStudentAverages(feedback, subjects, criteria);
-                    const row = [feedback.student_id, feedback.student_name || 'N/A', new Date(feedback.submitted_at).toLocaleString(), feedback.comments || 'N/A'];
-                    subjects.forEach(subject => row.push(studentAverages[subject] ? studentAverages[subject].toFixed(2) : 'N/A'));
-                    sheetData.push(row);
+                    const row = [
+                        feedback.student_id || `Student_${index + 1}`,
+                        feedback.student_name || feedback.name || 'N/A',
+                        feedback.submitted_at ? new Date(feedback.submitted_at).toLocaleString() : 'N/A',
+                        feedback.comments || feedback.comment || 'N/A'
+                    ];
+                    
+                    subjects.forEach(subject => {
+                        row.push(studentAverages[subject] || 'N/A');
+                    });
+                    
+                    summaryData.push(row);
+                } catch (err) {
+                    console.warn(`Error processing feedback entry ${index}:`, err);
+                    // Add a row with basic info even if processing fails
+                    summaryData.push([
+                        feedback.student_id || `Student_${index + 1}`,
+                        'Error processing data',
+                        'N/A',
+                        'Data processing error',
+                        ...subjects.map(() => 'Error')
+                    ]);
+                }
+            });
+
+            const summarySheet = XLSX.utils.aoa_to_sheet(summaryData);
+            XLSX.utils.book_append_sheet(workbook, summarySheet, 'Summary');
+
+            // Create Detailed Sheet if we have proper rating data
+            if (subjects.length > 0 && criteria.length > 0) {
+                const detailedData = [
+                    ['Detailed Feedback Ratings'],
+                    ['Student ID', 'Student Name', 'Submitted On', 
+                     ...subjects.flatMap(s => criteria.map(c => `${s} - ${c}`)), 
+                     'Comments']
+                ];
+
+                feedbacks.forEach((feedback, index) => {
+                    try {
+                        const row = [
+                            feedback.student_id || `Student_${index + 1}`,
+                            feedback.student_name || feedback.name || 'N/A',
+                            feedback.submitted_at ? new Date(feedback.submitted_at).toLocaleString() : 'N/A'
+                        ];
+
+                        subjects.forEach(subject => {
+                            criteria.forEach(criterion => {
+                                const rating = feedback.ratings?.[subject]?.[criterion];
+                                row.push(typeof rating === 'number' ? rating : 'N/A');
+                            });
+                        });
+
+                        row.push(feedback.comments || feedback.comment || 'N/A');
+                        detailedData.push(row);
+                    } catch (err) {
+                        console.warn(`Error processing detailed data for entry ${index}:`, err);
+                    }
                 });
-    
-                const sheet = XLSX.utils.aoa_to_sheet(sheetData);
-                XLSX.utils.book_append_sheet(workbook, sheet, sheetName);
+
+                const detailedSheet = XLSX.utils.aoa_to_sheet(detailedData);
+                XLSX.utils.book_append_sheet(workbook, detailedSheet, 'Detailed');
             }
-    
-            if (workbook.SheetNames.length > 0) {
-                XLSX.writeFile(workbook, `All_Feedback_Data_${new Date().toISOString().split('T')[0]}.xlsx`);
-                setSuccess('All feedback data exported successfully!');
-            } else {
-                setError('No feedback data found in any forms to export.');
-            }
+
+            // Generate filename
+            const filename = `Feedback_${data.department || 'Unknown'}_${data.section || 'Unknown'}_${new Date().toISOString().split('T')[0]}.xlsx`;
+            
+            XLSX.writeFile(workbook, filename);
+            setSuccess(`Feedback data exported successfully as "${filename}"!`);
+
         } catch (error) {
-            console.error('Failed to export all data:', error);
-            setError('An error occurred while exporting all data. Please try again.');
+            console.error('Export error details:', error);
+            
+            if (error.response?.status === 404) {
+                setError('Feedback data not found. The API endpoint may not exist or the form has no responses.');
+            } else if (error.response?.status === 500) {
+                setError('Server error occurred while fetching feedback data. Please try again later.');
+            } else if (error.message.includes('Network Error')) {
+                setError('Network connection error. Please check your internet connection.');
+            } else {
+                setError(`Export failed: ${error.message}. Please check the console for more details.`);
+            }
         } finally {
             setExporting(false);
             setTimeout(() => {
                 setSuccess('');
                 setError('');
-            }, 3000);
+            }, 5000);
         }
     };
 
-    // --- FIXED: File Upload Handlers ---
+    // FIXED: Export all forms data
+    const exportAllFormsData = async () => {
+        if (forms.length === 0) {
+            setError('No forms available to export.');
+            return;
+        }
+
+        setExporting(true);
+        setError('');
+        const workbook = XLSX.utils.book_new();
+        let successCount = 0;
+        let errorCount = 0;
+
+        try {
+            for (const form of forms) {
+                if (form.response_count === 0) {
+                    console.log(`Skipping form ${form.id} - no responses`);
+                    continue;
+                }
+
+                try {
+                    console.log(`Processing form: ${form.title} (ID: ${form.id})`);
+                    
+                    // Try multiple endpoints for each form
+                    let response;
+                    const possibleEndpoints = [
+                        `${API}/forms/${form.id}/feedback`,
+                        `${API}/forms/${form.id}/responses`,
+                        `${API}/feedback/${form.id}`
+                    ];
+
+                    for (const endpoint of possibleEndpoints) {
+                        try {
+                            response = await axios.get(endpoint);
+                            break;
+                        } catch (err) {
+                            continue;
+                        }
+                    }
+
+                    if (!response) {
+                        console.warn(`No valid endpoint found for form ${form.id}`);
+                        errorCount++;
+                        continue;
+                    }
+
+                    const data = response.data;
+                    const feedbacks = data.feedbacks || data.responses || data.data || [];
+                    const subjects = data.subjects || form.subjects || [];
+                    const criteria = data.evaluation_criteria || data.criteria || [];
+
+                    if (feedbacks.length === 0) {
+                        console.warn(`No feedback data for form ${form.id}`);
+                        continue;
+                    }
+
+                    // Create safe sheet name
+                    const sheetName = `${data.department || form.department || 'Dept'}_${data.year || form.year || 'Year'}_${data.section || form.section || 'Sec'}`
+                        .replace(/[\/\\?*\[\]:]/g, '_')
+                        .substring(0, 31);
+
+                    const sheetData = [
+                        [`${data.form_title || form.title || 'Feedback Form'}`],
+                        [`Total Responses: ${feedbacks.length}`],
+                        [`Export Date: ${new Date().toLocaleString()}`],
+                        [''],
+                        ['Student ID', 'Student Name', 'Submitted On', 'Comments', ...subjects.map(s => `${s} Avg`)]
+                    ];
+
+                    feedbacks.forEach((feedback, index) => {
+                        try {
+                            const studentAverages = calculateStudentAverages(feedback, subjects, criteria);
+                            const row = [
+                                feedback.student_id || `Student_${index + 1}`,
+                                feedback.student_name || feedback.name || 'N/A',
+                                feedback.submitted_at ? new Date(feedback.submitted_at).toLocaleString() : 'N/A',
+                                feedback.comments || feedback.comment || 'N/A'
+                            ];
+                            
+                            subjects.forEach(subject => {
+                                row.push(studentAverages[subject] || 'N/A');
+                            });
+                            
+                            sheetData.push(row);
+                        } catch (err) {
+                            console.warn(`Error processing feedback in form ${form.id}:`, err);
+                        }
+                    });
+
+                    const sheet = XLSX.utils.aoa_to_sheet(sheetData);
+                    XLSX.utils.book_append_sheet(workbook, sheet, sheetName);
+                    successCount++;
+
+                } catch (error) {
+                    console.error(`Error processing form ${form.id}:`, error);
+                    errorCount++;
+                }
+            }
+
+            if (workbook.SheetNames.length > 0) {
+                const filename = `All_Feedback_Data_${new Date().toISOString().split('T')[0]}.xlsx`;
+                XLSX.writeFile(workbook, filename);
+                setSuccess(`Export completed! ${successCount} forms exported successfully. ${errorCount > 0 ? `${errorCount} forms had errors.` : ''}`);
+            } else {
+                setError('No data could be exported. Please check if forms have responses and API endpoints are working.');
+            }
+
+        } catch (error) {
+            console.error('Bulk export error:', error);
+            setError(`Bulk export failed: ${error.message}`);
+        } finally {
+            setExporting(false);
+            setTimeout(() => {
+                setSuccess('');
+                setError('');
+            }, 5000);
+        }
+    };
+
+    // File upload handlers (unchanged)
     const handleFileSelect = (event) => {
         const file = event.target.files[0];
         if (file) {
@@ -1555,7 +1741,7 @@ const AdminView = () => {
             setError('');
         }
     };
-    
+
     const handleUpload = async () => {
         if (!selectedFile) {
             setError('Please select a file first.');
@@ -1565,17 +1751,15 @@ const AdminView = () => {
         setError('');
         const formData = new FormData();
         formData.append('file', selectedFile);
-    
+
         try {
-            // Note: You must create a backend endpoint at POST /api/feedback/upload
-            // This endpoint should accept a multipart/form-data request with a 'file' field.
             const response = await axios.post(`${API}/feedback/upload`, formData, {
                 headers: { 'Content-Type': 'multipart/form-data' },
             });
             setSuccess(response.data.message || 'File uploaded successfully!');
             setSelectedFile(null);
-            document.getElementById('fileUpload').value = ''; // Clear file input
-            await fetchForms(); // Refresh data
+            document.getElementById('fileUpload').value = '';
+            await fetchForms();
         } catch (error) {
             console.error('Failed to upload file:', error);
             setError(error.response?.data?.detail || 'Failed to upload file. Check console for details.');
@@ -1618,8 +1802,16 @@ const AdminView = () => {
                 </Card>
 
                 {/* Alerts */}
-                {error && <Alert variant="destructive" className="mb-4"><AlertDescription>{error}</AlertDescription></Alert>}
-                {success && <Alert className="mb-4 border-green-200 bg-green-50"><AlertDescription className="text-green-800">{success}</AlertDescription></Alert>}
+                {error && (
+                    <Alert variant="destructive" className="mb-4">
+                        <AlertDescription>{error}</AlertDescription>
+                    </Alert>
+                )}
+                {success && (
+                    <Alert className="mb-4 border-green-200 bg-green-50">
+                        <AlertDescription className="text-green-800">{success}</AlertDescription>
+                    </Alert>
+                )}
                 
                 <Tabs defaultValue="forms" className="space-y-6">
                     <TabsList className="grid w-full grid-cols-4">
@@ -1651,17 +1843,27 @@ const AdminView = () => {
                                                 <div className="mb-3">
                                                     <p className="text-sm font-medium text-gray-700 mb-1">Subjects:</p>
                                                     <div className="flex flex-wrap gap-1">
-                                                        {form.subjects.map((s, i) => <Badge key={i} variant="outline">{s}</Badge>)}
+                                                        {(form.subjects || []).map((s, i) => (
+                                                            <Badge key={i} variant="outline">{s}</Badge>
+                                                        ))}
                                                     </div>
                                                 </div>
                                                 <div className="flex gap-2 flex-wrap mt-4">
                                                     <Button variant="outline" size="sm" onClick={() => copyToClipboard(form.shareable_link)}>
                                                         <Copy className="h-4 w-4 mr-1" /> Copy Link
                                                     </Button>
-                                                    <Button variant="outline" size="sm" onClick={() => exportSingleFormData(form.id)} disabled={form.response_count === 0}>
-                                                        <Download className="h-4 w-4 mr-1" /> Export Data ({form.response_count})
+                                                    <Button 
+                                                        variant="outline" 
+                                                        size="sm" 
+                                                        onClick={() => exportSingleFormData(form.id)} 
+                                                        disabled={form.response_count === 0 || exporting}
+                                                    >
+                                                        {exporting ? (
+                                                            <><Loader2 className="h-4 w-4 mr-1 animate-spin" /> Exporting...</>
+                                                        ) : (
+                                                            <><Download className="h-4 w-4 mr-1" /> Export Data ({form.response_count})</>
+                                                        )}
                                                     </Button>
-                                                    {/* NEW Delete Button */}
                                                     <Button variant="destructive" size="sm" onClick={() => deleteForm(form.id)}>
                                                         <Trash2 className="h-4 w-4 mr-1" /> Delete Form
                                                     </Button>
@@ -1674,64 +1876,130 @@ const AdminView = () => {
                         </Card>
                     </TabsContent>
 
-                    {/* Create New Form */}
+                    {/* Create New Form - Keep existing JSX unchanged */}
                     <TabsContent value="create">
-                        {/* The JSX for this tab is correct and needs no changes. */}
                         <Card>
                             <CardHeader><CardTitle>Create New Feedback Form</CardTitle></CardHeader>
                             <CardContent className="space-y-6">
-                                {/* Form Inputs for Title, Dept, Year, Section */}
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                     <div>
                                         <Label htmlFor="title">Form Title *</Label>
-                                        <Input id="title" placeholder="e.g., Mid-Semester Feedback" value={newForm.title} onChange={(e) => setNewForm({...newForm, title: e.target.value})} disabled={submitting} />
+                                        <Input 
+                                            id="title" 
+                                            placeholder="e.g., Mid-Semester Feedback" 
+                                            value={newForm.title} 
+                                            onChange={(e) => setNewForm({...newForm, title: e.target.value})} 
+                                            disabled={submitting} 
+                                        />
                                     </div>
                                     <div>
                                         <Label htmlFor="department">Department *</Label>
-                                        <Input id="department" placeholder="e.g., ECE, CSE" value={newForm.department} onChange={(e) => setNewForm({...newForm, department: e.target.value})} disabled={submitting} />
+                                        <Input 
+                                            id="department" 
+                                            placeholder="e.g., ECE, CSE" 
+                                            value={newForm.department} 
+                                            onChange={(e) => setNewForm({...newForm, department: e.target.value})} 
+                                            disabled={submitting} 
+                                        />
                                     </div>
                                 </div>
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                     <div>
+                                    <div>
                                         <Label htmlFor="year">Year *</Label>
-                                        <Input id="year" placeholder="e.g., 3rd Year" value={newForm.year} onChange={(e) => setNewForm({...newForm, year: e.target.value})} disabled={submitting} />
+                                        <Input 
+                                            id="year" 
+                                            placeholder="e.g., 3rd Year" 
+                                            value={newForm.year} 
+                                            onChange={(e) => setNewForm({...newForm, year: e.target.value})} 
+                                            disabled={submitting} 
+                                        />
                                     </div>
                                     <div>
                                         <Label htmlFor="section">Section *</Label>
-                                        <Input id="section" placeholder="e.g., A, B" value={newForm.section} onChange={(e) => setNewForm({...newForm, section: e.target.value})} disabled={submitting} />
+                                        <Input 
+                                            id="section" 
+                                            placeholder="e.g., A, B" 
+                                            value={newForm.section} 
+                                            onChange={(e) => setNewForm({...newForm, section: e.target.value})} 
+                                            disabled={submitting} 
+                                        />
                                     </div>
                                 </div>
 
-                                {/* Dynamic Subjects */}
                                 <div>
                                     <Label className="text-lg font-medium">Subjects</Label>
                                     <div className="space-y-2 mt-2">
                                         {newForm.subjects.map((s, i) => (
                                             <div key={i} className="flex gap-2">
-                                                <Input placeholder={`Subject ${i + 1}`} value={s} onChange={(e) => updateSubject(i, e.target.value)} disabled={submitting} />
-                                                <Button type="button" variant="outline" size="icon" onClick={() => removeSubject(i)} disabled={newForm.subjects.length === 1 || submitting}><Trash2 className="h-4 w-4" /></Button>
+                                                <Input 
+                                                    placeholder={`Subject ${i + 1}`} 
+                                                    value={s} 
+                                                    onChange={(e) => updateSubject(i, e.target.value)} 
+                                                    disabled={submitting} 
+                                                />
+                                                <Button 
+                                                    type="button" 
+                                                    variant="outline" 
+                                                    size="icon" 
+                                                    onClick={() => removeSubject(i)} 
+                                                    disabled={newForm.subjects.length === 1 || submitting}
+                                                >
+                                                    <Trash2 className="h-4 w-4" />
+                                                </Button>
                                             </div>
                                         ))}
-                                        <Button type="button" variant="outline" onClick={addSubject} className="w-full" disabled={submitting}><Plus className="h-4 w-4 mr-2" />Add Subject</Button>
+                                        <Button 
+                                            type="button" 
+                                            variant="outline" 
+                                            onClick={addSubject} 
+                                            className="w-full" 
+                                            disabled={submitting}
+                                        >
+                                            <Plus className="h-4 w-4 mr-2" />Add Subject
+                                        </Button>
                                     </div>
                                 </div>
 
-                                {/* Dynamic Criteria */}
                                 <div>
                                     <Label className="text-lg font-medium">Evaluation Criteria</Label>
                                     <div className="space-y-2 mt-2">
                                         {newForm.evaluation_criteria.map((c, i) => (
                                             <div key={i} className="flex gap-2">
-                                                <Input placeholder={`Criteria ${i + 1}`} value={c} onChange={(e) => updateCriteria(i, e.target.value)} disabled={submitting} />
-                                                <Button type="button" variant="outline" size="icon" onClick={() => removeCriteria(i)} disabled={newForm.evaluation_criteria.length === 1 || submitting}><Trash2 className="h-4 w-4" /></Button>
+                                                <Input 
+                                                    placeholder={`Criteria ${i + 1}`} 
+                                                    value={c} 
+                                                    onChange={(e) => updateCriteria(i, e.target.value)} 
+                                                    disabled={submitting} 
+                                                />
+                                                <Button 
+                                                    type="button" 
+                                                    variant="outline" 
+                                                    size="icon" 
+                                                    onClick={() => removeCriteria(i)} 
+                                                    disabled={newForm.evaluation_criteria.length === 1 || submitting}
+                                                >
+                                                    <Trash2 className="h-4 w-4" />
+                                                </Button>
                                             </div>
                                         ))}
-                                        <Button type="button" variant="outline" onClick={addCriteria} className="w-full" disabled={submitting}><Plus className="h-4 w-4 mr-2" />Add Criteria</Button>
+                                        <Button 
+                                            type="button" 
+                                            variant="outline" 
+                                            onClick={addCriteria} 
+                                            className="w-full" 
+                                            disabled={submitting}
+                                        >
+                                            <Plus className="h-4 w-4 mr-2" />Add Criteria
+                                        </Button>
                                     </div>
                                 </div>
 
                                 <Button onClick={createForm} className="w-full" disabled={submitting}>
-                                    {submitting ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Creating...</> : 'Create Feedback Form'}
+                                    {submitting ? (
+                                        <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Creating...</>
+                                    ) : (
+                                        'Create Feedback Form'
+                                    )}
                                 </Button>
                             </CardContent>
                         </Card>
@@ -1749,14 +2017,22 @@ const AdminView = () => {
                                         <strong>Total Responses:</strong> {forms.reduce((total, form) => total + form.response_count, 0)}
                                     </p>
                                 </div>
-                                <Button onClick={exportAllFormsData} className="w-full" disabled={exporting || forms.length === 0}>
-                                    {exporting ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Exporting All Data...</> : <><Download className="h-4 w-4 mr-2" />Export All Data</>}
+                                <Button 
+                                    onClick={exportAllFormsData} 
+                                    className="w-full" 
+                                    disabled={exporting || forms.length === 0}
+                                >
+                                    {exporting ? (
+                                        <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Exporting All Data...</>
+                                    ) : (
+                                        <><Download className="h-4 w-4 mr-2" />Export All Data</>
+                                    )}
                                 </Button>
                             </CardContent>
                         </Card>
                     </TabsContent>
 
-                    {/* FIXED: Upload Data */}
+                    {/* Upload Data */}
                     <TabsContent value="upload">
                         <Card>
                             <CardHeader><CardTitle>Upload Feedback File</CardTitle></CardHeader>
@@ -1774,7 +2050,11 @@ const AdminView = () => {
                                     />
                                 </div>
                                 <Button onClick={handleUpload} className="w-full" disabled={uploading || !selectedFile}>
-                                    {uploading ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Uploading...</> : <><Upload className="h-4 w-4 mr-2" />Upload File</>}
+                                    {uploading ? (
+                                        <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Uploading...</>
+                                    ) : (
+                                        <><Upload className="h-4 w-4 mr-2" />Upload File</>
+                                    )}
                                 </Button>
                             </CardContent>
                         </Card>
