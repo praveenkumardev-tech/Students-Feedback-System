@@ -1467,7 +1467,7 @@ const AdminView = () => {
                 `${API}/forms/${formId}/responses`,
                 `${API}/feedback/${formId}`,
                 `${API}/forms/${formId}`
-            ];
+            ];//
 
             for (const endpoint of possibleEndpoints) {
                 try {
